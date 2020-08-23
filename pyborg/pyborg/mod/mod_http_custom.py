@@ -1,0 +1,174 @@
+"""
+pyborg http server for multiplexing backend/brain access
+"""
+
+import inspect
+import logging
+from typing import Callable
+from pathlib import Path
+from typing import List, Dict
+
+import bottle
+import click
+import attr
+from bottle import request
+from filelock import FileLock
+
+from pyborg.pyborg_custom import PyborgBot
+from pyborg.util.stats import send_stats
+
+logger = logging.getLogger(__name__)
+folder = click.get_app_dir("Pyborg")
+SAVE_LOCK = FileLock(Path(folder, ".pyborg_is_saving.lock"))
+
+try:
+    import nltk
+    logger.debug("Got nltk!")
+except ImportError:
+    nltk = None
+    logger.debug("No nltk, won't be using advanced part of speech tagging.")
+
+
+@attr.s
+class BottledPyborg:
+    brain_path = attr.ib()
+    toml_path = attr.ib()
+    pyb = attr.ib()(init=False)
+
+    def setup(self, app) -> None:
+        self.pyb = PyborgBot(brain=Path(self.brain_path, toml_file=Path(self.toml_path)))
+
+    def close(self) -> None:
+        logger.debug("bottled pyborg save via close() initiated.")
+        with SAVE_LOCK:
+            self.pyb.save_brain()
+
+    def apply(self, callback, route) -> Callable:
+        keyword = "pyborg"
+        args = inspect.signature(route.callback).parameters
+        if keyword not in args:
+            return callback
+
+        def wrapper(*args, **kwargs) -> Callable:
+            kwargs[keyword] = self.pyb
+            return callback(*args, **kwargs)
+
+        return wrapper
+
+
+@bottle.route("/")
+def index(pyborg) -> str:
+    return f"""<html><h1>Welcome to PyBorg/http</h1>
+    <h2>{pyborg.ver_string}</h2>
+    <a href='/words.json'>Words info (json)</a>
+    <h2>Is the db saving?</h2>
+    <p>{SAVE_LOCK.is_locked}</p>
+    </html>"""
+
+# Basic API
+
+
+@bottle.route("/learn", method="POST")
+def learn(pyborg) -> str:
+    body = request.POST.getunicode("body")
+    pyborg.learn(body)
+    return "OK"
+
+
+@bottle.route("/reply", method="POST")
+def reply(pyborg) -> str:
+    body = request.POST.getunicode("body")
+    logger.debug(type(body))
+    return pyborg.make_reply(body)
+
+
+@bottle.route("/save", method="POST")
+def save(pyborg) -> str:
+    with SAVE_LOCK:
+        pyborg.save()
+        return f"Saved to {pyborg.brain}"
+
+
+@bottle.route("/info")
+def info(pyborg) -> tuple:
+    return pyborg.ver_string, pyborg.brain
+
+
+@bottle.route("/info.json")
+def info2(pyborg) -> Dict:
+    return {"version_string": pyborg.ver_string, "brain": pyborg.brain}
+
+
+@bottle.route("/stats", method="POST")
+def stats(pyborg) -> str:
+    "record stats to statsd"
+    send_stats(pyborg)
+    return "OK"
+
+# Advanced API
+
+
+class DumbyIOMod:
+    """fake IO mod for pyborg interop"""
+    def __init__(self) -> None:
+        self.commandlist = ""
+        self.message = None
+        self.messages: List[str] = []  # New for multi-line output
+        self.args = None
+
+    def output(self, message, args) -> None:
+        self.messages.append(message)
+        self.message = message
+        self.args = args
+
+
+@bottle.route("/process", method="POST")
+def process(pyborg) -> str:
+    body = request.POST.getunicode("body")
+    reply_rate = int(request.POST.get("reply_rate"))
+    learning = int(request.POST.get("learning"))
+    owner = int(request.POST.get("owner"))
+    # logger.debug("process: type: owner: %s", type(owner))
+    # logger.debug("process:body type: %s", type(body))
+    # logger.debug("process:body: %s" ,body)
+
+    fake_io = DumbyIOMod()
+    pyborg.process_msg(fake_io, body, reply_rate, learning, None, owner)
+    if fake_io.message:
+        return fake_io.message
+    return ""
+
+
+@bottle.route("/known")
+def known(pyborg) -> str:
+    "return number of contexts"
+    word = request.query.word
+    try:
+        return f"{word} is known ({len(pyborg.words[word])} contexts)"
+    except KeyError:
+        return "word not known"
+
+
+@bottle.route("/words.json")
+def words_json(pyborg) -> Dict:
+    return {"words": pyborg.config.num_words,
+            "contexts": pyborg.config.num_contexts,
+            "lines": len(pyborg.lines)}
+
+
+@bottle.route("/commands.json")
+def commands_json(pyborg) -> Dict:
+    return pyborg.commanddict
+
+
+@bottle.get("/meta/status.json")
+def save_lock_status(pyborg) -> Dict:
+    return {"status": SAVE_LOCK.is_locked}
+
+
+@bottle.post("/meta/logging-level")
+def set_log_level() -> None:
+    """levels = {"DEBUG": logging.DEBUG, "INFO": logging.INFO,
+              "WARNING": logging.WARNING, "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL}
+    """
+    logger.setLevel(request.POST.get("level").upper())
