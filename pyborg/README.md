@@ -59,7 +59,10 @@ Pyborg can use nltk tagging and tokenizing when installed and configured. Taggin
 Install the custom module
 -------------
 
-You can initialize your virtual environment with the `pyborg/requirements.txt` file.
+You can initialize your virtual environment with the `pyborg/requirements.txt` file and the poetry requirements.
+(Not sure that all the dependencies required are present, but install the missing according to the error messages)
+
+**Note:** A Python version 
 
 In order to install the `pyborg_custom` command, execute at the root of the `pyborg` folder:
 `python setup.py install`

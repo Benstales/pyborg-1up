@@ -5,4 +5,4 @@ if sys.version_info >= (3, 8):
 else:
     from importlib_metadata import version as get_version
 
-__version__ = get_version("pyborg")
+__version__ = get_version("pyborg_custom")
