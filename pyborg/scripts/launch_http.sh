@@ -5,8 +5,6 @@ PIDFILE=~/cron_var/http.pid
 CONF_FILE=~/config/discord_custom.toml
 PYTHON_ENV=~/venv
 
-source $PYTHON_ENV/bin/activate
-
 function s_date {
   date +"[%b %d %H:%M:%S]"
 }
@@ -114,6 +112,8 @@ function s_clean {
 }
 
 function l_bot {
+  source $PYTHON_ENV/bin/activate
+
   pyborg_custom http ${CONF_FILE} &
 }
 
