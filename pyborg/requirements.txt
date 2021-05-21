@@ -34,8 +34,6 @@ praw==6.5.1
 prawcore==1.5.0
 prompt-toolkit==3.0.6
 py==1.9.0
-pyborg @ file:///home/benjamin/PythonProjects/pyborg-1up
-pyborg-custom==1.0.1
 pyparsing==2.4.7
 PySocks==1.7.1
 python-dateutil==2.8.1

@@ -10,7 +10,7 @@ def get_long_description():
 setup(
     name="pyborg-custom",
     version="1.0.1",
-    python_requires=">=3.7",
+    python_requires=">=3.6",
     description="Pyborg custom",
     long_description=get_long_description(),
     long_description_content_type="text/markdown",
