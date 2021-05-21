@@ -3,19 +3,18 @@ Module containing the internal commands
 """
 from typing import List
 
-from pyborg.pyborg_custom import PyborgBot
 from pyborg.commands_custom import PyborgCommand
 
 import time
 import sys
 
 
-def version(pyborg: PyborgBot, **kwargs) -> str:
+def version(pyborg: "PyborgBot", **kwargs) -> str:
     """Retrieve the pyborg version in string format."""
     return pyborg.config["pyborg"]["ver_string"]
 
 
-def words(pyborg: PyborgBot, **kwargs) -> str:
+def words(pyborg: "PyborgBot", **kwargs) -> str:
     num_w = pyborg.settings["num_words"]
     num_c = pyborg.settings["num_contexts"]
     num_l = len(pyborg.lines)
@@ -26,22 +25,32 @@ def words(pyborg: PyborgBot, **kwargs) -> str:
     return "I know %d words (%d contexts, %.2f per word), %d lines." % (num_w, num_c, num_cpw, num_l)
 
 
-def save(pyborg: PyborgBot, **kwargs) -> str:
+def save(pyborg: "PyborgBot", **kwargs) -> str:
     pyborg.save_brain()
     return "Dictionary saved"
 
 
-def help_pyborg(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def help_pyborg(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
+    command_prefix = pyborg.command_dict.command_prefix
     if len(command_list) > 1:
         # Help for a specific command
         cmd = command_list[1].lower()
         if cmd in pyborg.command_dict:
-            return pyborg.command_dict.get_command(cmd).display_help()
+            return pyborg.command_dict.get_command(cmd).display_help(command_prefix=command_prefix)
+        elif cmd[len(command_prefix):] in pyborg.command_dict:
+            return pyborg.command_dict.get_command(cmd[len(command_prefix):]).display_help(command_prefix=command_prefix)
+        else:
+            return "Command not found in the list of available commands."
     else:
-        return str(pyborg.command_dict)
+        return f"Use {command_prefix}list instead to list the available commands."
 
 
-def limit(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def list_pyborg(pyborg: "PyborgBot", **kwargs) -> str:
+    return "\n".join([f"{pyborg.command_dict.command_prefix}{cmd.name}: {cmd.description}"
+                      for cmd in pyborg.command_dict.command_dict.values()])
+
+
+def limit(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
     msg = "The max limit is "
     if len(command_list) == 1:
         msg += str(pyborg.config["max_words"])
@@ -52,7 +61,7 @@ def limit(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
     return msg
 
 
-def rebuild_dict(pyborg: PyborgBot, **kwargs) -> str:
+def rebuild_dict(pyborg: "PyborgBot", **kwargs) -> str:
     if pyborg.config["pyborg"]["learning"]:
         t = time.time()
 
@@ -73,7 +82,7 @@ def rebuild_dict(pyborg: PyborgBot, **kwargs) -> str:
             pyborg.settings["num_contexts"] - old_num_contexts)
 
 
-def purge(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def purge(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
     t = time.time()
     if len(command_list) == 2:
         # limite d occurences a effacer
@@ -84,7 +93,7 @@ def purge(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
     return "Purge dictionary in %0.2fs. %d words removed" % (time.time() - t, number_removed)
 
 
-def replace(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def replace(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
     if len(command_list) < 3:
         return ""
     old = command_list[1].lower()
@@ -92,7 +101,7 @@ def replace(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
     return pyborg.replace(old, new)
 
 
-def unlearn(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def unlearn(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
     # build context we are looking for
     context = " ".join(command_list[1:])
     context = context.lower()
@@ -107,7 +116,7 @@ def unlearn(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
     return "Unlearn done in %0.2fs" % (time.time() - t)
 
 
-def learning(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def learning(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
     msg = "Learning mode "
     if len(command_list) == 1:
         if not pyborg.config["pyborg"]["learning"]:
@@ -125,7 +134,7 @@ def learning(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str
     return msg
 
 
-def censor(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def censor(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
     msg = "s"
     # no arguments. list censored words
     if len(command_list) == 1:
@@ -146,7 +155,7 @@ def censor(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
     return msg
 
 
-def uncensor(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str:
+def uncensor(pyborg: "PyborgBot", command_list: List[str] = None, **kwargs) -> str:
     # Remove everyone listed from the ignore list
     # eg !unignore tom dick harry
     msg = ""
@@ -159,7 +168,7 @@ def uncensor(pyborg: PyborgBot, command_list: List[str] = None, **kwargs) -> str
     return msg
 
 
-def quit(pyborg: PyborgBot, **kwargs):
+def quit(pyborg: "PyborgBot", **kwargs):
     # Close the dictionary
     pyborg.save_brain()
     sys.exit()
@@ -167,59 +176,76 @@ def quit(pyborg: PyborgBot, **kwargs):
 
 INTERNAL_COMMANDS = [PyborgCommand(name="version",
                                    command_callable=version,
-                                   help="Usage: !version\nDisplay what version of Pyborg we are running"),
+                                   description="Display what version of Pyborg we are running",
+                                   usage="version"),
                      PyborgCommand(name="words",
                                    command_callable=words,
-                                   help="Usage: !words\nDisplay how many words are known"),
+                                   description="Display how many words are known.",
+                                   usage="words"),
                      PyborgCommand(name="save",
                                    command_callable=save,
-                                   help="Save current brain to JSON file.",
+                                   description="Save current brain to JSON file.",
+                                   usage="save",
                                    owner_permission=True),
                      PyborgCommand(name="help",
                                    command_callable=help_pyborg,
-                                   help="Usage: !help [command]\nPrints information about using a command, "
-                                        "or a list of commands if no command is given"),
+                                   description="Prints information about using a command, "
+                                               "or a list of commands if no command is given.",
+                                   usage="help [command]"),
+                     PyborgCommand(name="list",
+                                   command_callable=list_pyborg,
+                                   description="List the available commands.",
+                                   usage="list"),
                      PyborgCommand(name="limit",
                                    command_callable=limit,
-                                   help="Usage: !limit [number]\nSet the number of words that pyBorg can learn.",
+                                   description="Set the number of words that pyBorg can learn.",
+                                   usage="limit [number]",
                                    owner_permission=True),
                      PyborgCommand(name="rebuilddict",
                                    command_callable=rebuild_dict,
-                                   help="Owner command. Usage: !rebuilddict\nRebuilds dictionary links from the lines "
-                                        "of known text. Takes a while. You probably don't need to do it unless your "
-                                        "dictionary is very screwed",
+                                   description="Rebuilds dictionary links from the lines "
+                                               "of known text. Takes a while. You probably don't need to do it unless"
+                                               "your dictionary is very screwed",
+                                   usage="rebuilddict",
                                    owner_permission=True),
                      PyborgCommand(name="purge",
                                    command_callable=purge,
-                                   help="Usage: !purge [number]\nRemove all occurances of the words that appears in "
-                                        "less than <number> contexts",
+                                   description="Remove all occurances of the words that appears in "
+                                               "less than <number> contexts",
+                                   usage="purge [number]",
                                    owner_permission=True),
                      PyborgCommand(name="replace",
                                    command_callable=replace,
-                                   help="Usage: !replace <old> <new>\nReplace all occurances of word <old> in the "
-                                        "dictionary with <new>",
+                                   description="Replace all occurances of word <old> in the "
+                                               "dictionary with <new>",
+                                   usage="replace <old> <new>",
                                    owner_permission=True),
                      PyborgCommand(name="unlearn",
                                    command_callable=unlearn,
-                                   help="Usage: !unlearn <expression>\nRemove all occurances of a word or expression "
-                                        "from the dictionary. For example '!unlearn of of' would remove all contexts"
-                                        " containing double 'of's",
+                                   description="Remove all occurances of a word or expression "
+                                               "from the dictionary. For example '!unlearn of of' would remove all "
+                                               "contexts containing double 'of's",
+                                   usage="unlearn <expression>",
                                    owner_permission=True),
-                     PyborgCommand(name="learning",
+                     PyborgCommand(name="toggle_learning",
                                    command_callable=learning,
-                                   help="Usage: !learning [on|off]\nToggle bot learning. Without arguments shows the "
-                                        "current setting",
+                                   description="Toggle bot learning. Without arguments shows the "
+                                               "current setting",
+                                   usage="toggle_learning [on|off]",
                                    owner_permission=True),
                      PyborgCommand(name="censor",
                                    command_callable=censor,
-                                   help="Usage: !censor [word1 [...]]\nPrevent the bot using one or more words. "
-                                        "Without arguments lists the currently censored words",
+                                   description="Prevent the bot using one or more words. "
+                                               "Without arguments lists the currently censored words",
+                                   usage="censor [word1 [...]]",
                                    owner_permission=True),
                      PyborgCommand(name="uncensor",
                                    command_callable=uncensor,
-                                   help="Usage: !uncensor word1 [word2 [...]]\nRemove censorship on one or more words",
+                                   description="Remove censorship on one or more words",
+                                   usage="uncensor word1 [word2 [...]]",
                                    owner_permission=True),
                      PyborgCommand(name="quit",
                                    command_callable=quit,
-                                   help="Termine the pyborg processus.",
+                                   description="Terminate the pyborg processus.",
+                                   usage="quit",
                                    owner_permission=True)]

@@ -1,7 +1,5 @@
 import attr
-from typing import Callable, Dict, Any, List, Optional
-
-from pyborg.pyborg_custom import PyborgBot
+from typing import Callable, Dict, Any, List
 
 
 @attr.s
@@ -9,24 +7,31 @@ class PyborgCommand:
     """Pyborg command class"""
     name: str = attr.ib()
     command_callable: Callable[..., Any] = attr.ib()
-    help: str = attr.ib()(default="")
-    owner_permission: bool = attr.ib()(default=False)
+    description: str = attr.ib(default="")
+    usage: str = attr.ib(default="")
+    owner_permission: bool = attr.ib(default=False)
 
-    def __call__(self, pyborg: PyborgBot, command_list: List[str] = None, owner: bool = False) -> Any:
+    def __call__(self, pyborg: "PyborgBot", command_list: List[str] = None, owner: bool = False) -> Any:
         """Execute the command"""
         # owner_permission => owner
         if not self.owner_permission or owner:
             return self.command_callable(pyborg, command_list=command_list)
         else:
-            pyborg.logger.warning(f"Execution of the command '{self.name}' is not possible because you are not the owner")
+            pyborg.logger.warning(f"Execution of the command '{self.name}' is not possible because the user is not the owner.")
             return None
 
-    def display_help(self):
+    def display_help(self, command_prefix: str = "!"):
         """Display the command help instruction."""
         # owner_permission => own
-        help_msg = self.help
+        help_msg = ""
+        if self.usage:
+            help_msg += f"Usage: {command_prefix}{self.usage}"
+            if self.description:
+                help_msg += "\n"
+        if self.description:
+            help_msg += self.description
         if self.owner_permission:
-            help_msg += " (OWNER PERMISSION REQUIRED)"
+            help_msg += " (OWNER PERMISSION REQUIRED)" if help_msg else "(OWNER PERMISSION REQUIRED)"
         return help_msg
 
 
@@ -34,10 +39,11 @@ class PyborgCommand:
 class PyborgCommandDict:
     """Pyborg command dict class"""
     command_dict: Dict[str, PyborgCommand] = attr.ib(default={})
+    command_prefix: str = attr.ib(default="!")
 
     @classmethod
-    def from_list_command(cls, list_new_commands: List[PyborgCommand]) -> "PyborgCommandDict":
-        instance = PyborgCommandDict()
+    def from_list_command(cls, list_new_commands: List[PyborgCommand], command_prefix: str = "!") -> "PyborgCommandDict":
+        instance = PyborgCommandDict(command_prefix=command_prefix)
         instance.add_commands(list_new_commands)
         return instance
 
@@ -49,9 +55,9 @@ class PyborgCommandDict:
             self.add_command(new_command)
 
     def get_command(self, command_name: str) -> PyborgCommand:
-        return self.command_dict[command_name]
+        return self.command_dict.get(command_name, None)
 
-    def __call__(self, pyborg: PyborgBot, command_name: str, command_list: List = None, owner: bool = False) -> Any:
+    def __call__(self, pyborg: "PyborgBot", command_name: str, command_list: List = None, owner: bool = False) -> Any:
         """Execute the command specified"""
         return self.command_dict[command_name](pyborg, command_list=command_list, owner=owner)
 

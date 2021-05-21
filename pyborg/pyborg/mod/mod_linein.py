@@ -78,7 +78,7 @@ class ModLineIn():
 
             # Pass message to borg
             if self.multiplexed:
-                d = {"body": body, "reply_rate": 100, "learning": 1, "owner": 1}
+                d = {"body": body, "reply_rate": 100, "learning": True, "owner": True}
                 resp = requests.post("http://localhost:2001/process", data=d)
 
                 if resp.status_code == requests.codes.ok:

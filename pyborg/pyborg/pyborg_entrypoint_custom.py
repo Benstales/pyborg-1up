@@ -23,15 +23,14 @@ from discord import Client, Guild
 from mastodon import Mastodon
 
 import pyborg
-import pyborg.pyborg # expensive
+import pyborg.util.pyborg_custom  # expensive
 from pyborg.mod.mod_discord_custom import PyborgDiscord
 from pyborg.mod.mod_filein import ModFileIn
-from pyborg.mod.mod_http_custom import bottle
+from pyborg.mod.mod_http_custom import bottle, BottledPyborg
 from pyborg.mod.mod_irc import ModIRC
 from pyborg.mod.mod_mastodon import PyborgMastodon
 from pyborg.mod.mod_tumblr import PyborgTumblr
 from pyborg.mod.mod_twitter import PyborgTwitter
-from pyborg.util.bottle_plugin import BottledPyborg
 from pyborg.util.config_defaults import configs as STOCK_CONFIGS
 from pyborg.util.util_cli import init_systemd, mk_folder
 
@@ -123,6 +122,7 @@ def dump_httpd_info() -> None:
     r.raise_for_status()
     logging.debug(r)
     print(f"server is {'saving' if r.json()['status'] else 'not saving'}")
+
 
 @utils.command("systemd")
 def yeet_systemd() -> None:
@@ -244,6 +244,7 @@ def brain() -> None:
     "Pyborg brain (pybrain.json) utils"
     pass  # pylint: disable=W0107
 
+
 @brain.command("ls")
 @click.pass_context
 def ls_brains(ctx) -> None:
@@ -266,9 +267,10 @@ def list_brains() -> None:
 def backup(target_brain: str, output: str) -> None:
     "Backup a specific brain"
     target = resolve_brain(target_brain)
-    backup_name = datetime.datetime.now().strftime("pyborg-%m-%d-%y-archive")
+    backup_name = datetime.datetime.now().strftime("pyborg-%m-%d-%y-brain")
     if output is None:
-        output = os.path.join(folder, "brains", "{}.zip".format(backup_name))
+        output = os.path.join(folder, "brains", "{}".format(backup_name))
+    print(f"Copy brain {target_brain} to {output}")
     shutil.copy2(target, output)
 
 
@@ -283,7 +285,7 @@ def stats(target_brain: str) -> None:
 @brain.command()
 @click.argument("target_brain", default="current")
 def graph(target_brain: str) -> None:
-    from pyborg.utils.graphing import networkx_demo
+    from pyborg.util.graphing import networkx_demo
     brain_path = resolve_brain(target_brain)
     pyb = pyborg.pyborg.pyborg(brain_path)
     print(networkx_demo(pyb, export=True))
@@ -505,19 +507,21 @@ def tumblr(conf_file: str) -> None:
 
 
 @cli_base.command()
+@click.argument("toml_path")
 @click.option("--brain_name", default="current")
 @click.option("--host", default="localhost")
 @click.option("--port", default=2001)
 @click.option("--reloader", default=False)
-def http(reloader: bool, port: int, host: str, brain_name: str) -> None:
+@click.option("--debug", default=False)
+def http(toml_path: str, reloader: bool, debug: bool, port: int, host: str, brain_name: str) -> None:
     "Run a server for mutliheaded (multiplex) pyborg"
     brain_path = resolve_brain(brain_name)
     if systemd:
         logger.info("booting with systemd notify support")
-        bottle.install(BottledPyborg(brain_path=brain_path, notify=True))
+        bottle.install(BottledPyborg(brain_path=brain_path, toml_path=toml_path))
     else:
-        bottle.install(BottledPyborg(brain_path=brain_path))
-    bottle.run(host=host, port=port, reloader=reloader)
+        bottle.install(BottledPyborg(brain_path=brain_path, toml_path=toml_path))
+    bottle.run(host=host, port=port, reloader=reloader, debug=debug)
     bottle.default_app().close()
 
 

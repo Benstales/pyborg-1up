@@ -1,6 +1,8 @@
 include *.py
 include example.irc.toml
 include example.*.toml
+include scripts/*
+include cron/*
 include LICENSE
 include ChangeLog
 include README.md

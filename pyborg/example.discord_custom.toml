@@ -1,0 +1,9 @@
+[discord]
+plaintext_ping = true
+reply_chance = 5
+token = "TODO"
+owner_id = "TODO"
+[pyborg]
+multiplex = true
+learning = true
+prefix = "!"

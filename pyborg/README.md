@@ -54,3 +54,12 @@ Suggested NLTK data
 -------------------
 
 Pyborg can use nltk tagging and tokenizing when installed and configured. Tagging requires `averaged_perceptron_tagger` and tokenization requires `punkt`. This needs the `nlp` extra.
+
+
+Install the custom module
+-------------
+
+You can initialize your virtual environment with the `pyborg/requirements.txt` file.
+
+In order to install the `pyborg_custom` command, execute at the root of the `pyborg` folder:
+`python setup.py install`

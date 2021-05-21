@@ -1,0 +1,9 @@
+# crontab -e
+SHELL=/bin/bash
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+MAILTO=""
+SCRIPTS_FOLDER=~/pyborg-1up/pyborg/scripts
+# Checks the bot every 10 minutes
+*/10 * * * * ${SCRIPTS_FOLDER}/launch_http.sh start >> ~/cron_logs/http.log
+*/10 * * * * ${SCRIPTS_FOLDER}/launch_discord.sh start >> ~/cron_logs/discord.log
+@weekly ${SCRIPTS_FOLDER}/launch_backup.sh >> ~/cron_logs/backup.log

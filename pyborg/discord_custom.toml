@@ -1,0 +1,9 @@
+[discord]
+plaintext_ping = true
+reply_chance = 5
+token = 'NTM5NjA5MzMwNjUyMDIwNzM3.XE-kWQ.GP5fZwhVgr57jUJrGvIRDMdR0tw'
+owner_id = '186476931745710081'
+[pyborg]
+multiplex = true
+learning = true
+prefix = '!c'

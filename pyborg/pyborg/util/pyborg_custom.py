@@ -7,7 +7,7 @@ import random
 import re
 import math
 import uuid
-from typing import MutableMapping
+from typing import MutableMapping, List
 from logging import Logger
 from pathlib import Path
 from random import randint
@@ -18,14 +18,15 @@ import attr
 import click
 import toml
 
-from pyborg.pyborg import pyborg, filter_message
+from pyborg.pyborg import pyborg
 from pyborg.commands_custom import PyborgCommandDict
 from pyborg.commands_custom.internal import INTERNAL_COMMANDS
 from pyborg.util.util_cli import mk_folder
 
-from . import __version__
+from pyborg import __version__
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 MANDATORY_TOML_PARAMS = ["learning"]
 # OPTIONAL_TOML_PARAMS map the key with its default value
@@ -33,10 +34,9 @@ OPTIONAL_TOML_PARAMS = {"ver_string": f"I am a version {__version__} Pyborg",
                         "saves_version": "1.4.0",
                         "owner": False,
                         "prefix": "!",
-                        "censor": [],
+                        "censored": [],
                         "ignore_list": [],
                         'max_words': math.inf}
-DEFAULT_COMMAND_DICT = PyborgCommandDict.from_list_command(INTERNAL_COMMANDS)
 
 try:
     import nltk
@@ -46,14 +46,55 @@ except ImportError:
     logger.debug("No nltk, won't be using advanced part of speech tagging.")
 
 
+def filter_message(message: str, bot) -> str:
+    """
+    Filter a message body so it is suitable for learning from and
+    replying to. This involves removing confusing characters,
+    padding ? and ! with ". " so they also terminate lines
+    and converting to lower case.
+    """
+    # to lowercase
+    message = message.lower()
+
+    # remove garbage
+    message = message.replace("\"", "")  # remove "s
+    message = message.replace("\n", " ")  # remove newlines
+    message = message.replace("\r", " ")  # remove carriage returns
+
+    # remove matching brackets (unmatched ones are likely smileys :-) *cough*
+    # should except out when not found.
+    index = 0
+    try:
+        while 1:
+            index = message.index("(", index)
+            # Remove matching ) bracket
+            i = message.index(")", index + 1)
+            message = message[0:i] + message[i + 1:]
+            # And remove the (
+            message = message[0:index] + message[index + 1:]
+    except ValueError as e:
+        logger.debug("filter_message error: %s", e)
+
+    message = message.replace(";", ",")
+    message = message.replace("?", " ? ")
+    message = message.replace("!", " ! ")
+    message = message.replace(".", " . ")
+    message = message.replace(",", " , ")
+    message = message.replace("'", " ' ")
+    message = message.replace(":", " : ")
+
+    return message
+
+
+@attr.s
 class PyborgBot:
     """Pyborg Bot as a class"""
 
     brain: Union[Path, str] = attr.ib()
     toml_file: Union[Path, str] = attr.ib()
-    command_dict: PyborgCommandDict = attr.ib(default=DEFAULT_COMMAND_DICT)
-    words: Dict[str, Dict[str, int]] = attr.ib()(init=False)
-    lines: Dict[int, Tuple[str, int]] = attr.ib()(init=False)
+    command_dict: PyborgCommandDict = attr.ib(default=None)
+    words: Dict[str, Dict[str, int]] = attr.ib(init=False)
+    lines: Dict[int, Tuple[str, int]] = attr.ib(init=False)
     config: MutableMapping[str, Any] = attr.ib(init=False)
     settings: MutableMapping[str, Any] = attr.ib(init=False)
     ready: bool = attr.ib(default=False)
@@ -62,7 +103,7 @@ class PyborgBot:
 
     def __attrs_post_init__(self) -> None:
         self.brain = Path(self.brain)
-        self.toml_file = Path(self.brain)
+        self.toml_file = Path(self.toml_file)
 
         # Load brain
         logger.info("Reading dictionary...")
@@ -78,7 +119,10 @@ class PyborgBot:
             logger.info("Error reading saves. New database created.")
 
         # Load TOML configuration file
-        self.config = toml.load(self.toml_file.as_posix())
+        self.config = toml.load(self.toml_file)
+
+        # Load commands
+        self.command_dict = PyborgCommandDict.from_list_command(INTERNAL_COMMANDS, command_prefix=self.config["pyborg"]["prefix"])
 
         # Check if mandatory parameters are in indeed in the TOML configuration file
         miss_param = self.__check_config()
@@ -92,6 +136,7 @@ class PyborgBot:
                 logger.info(f"MISSING TOML PARAM {key} : default value {self.config['pyborg'][key]}")
 
         # Initialize the settings
+        self.settings = {}
         mk_folder()
 
         logger.info("Updating dictionary information...")
@@ -109,6 +154,8 @@ class PyborgBot:
                     self.unlearn(line)
         except (EOFError, IOError) as e:
             logger.debug("No words to unlearn", exc_info=e)
+        except FileNotFoundError as e:
+            logger.debug("unlearn.txt file not found, no words to unlearn", exc_info=e)
 
         if nltk is None:
             self.has_nltk = False
@@ -125,18 +172,21 @@ class PyborgBot:
         """does nothing! implement or override. used internally for systemd notify."""
         pass
 
-    def __check_config(self) -> str:
+    def __check_config(self) -> List[str]:
         """Check the settings have all the mandatory parameters"""
-        if "learning" not in self.config["pyborg"]:
-            return "learning"
+        miss_params = []
+        for key in MANDATORY_TOML_PARAMS:
+            if key not in self.config["pyborg"]:
+                miss_params.append(key)
+        return miss_params
 
     def make_reply(self, body: str, owner: bool = False) -> str:
-        logger.debug("process_msg: %s", locals())
+        #logger.debug("process_msg: %s", locals())
         # add trailing space so sentences are broken up correctly
         body = body + " "
 
         # Parse commands
-        if body[0] == self.config["pyborg"]["prefix"]:
+        if body.startswith(self.config["pyborg"]["prefix"]):
             logger.debug("sending do_commands...")
             return self.do_commands(body, owner)
 
@@ -167,9 +217,9 @@ class PyborgBot:
             # cnt[type(value)] += 1
             for i in value:
                 cnt[type(i)] += 1
-        logger.debug("Types: %s", cnt)
-        logger.debug("Words: %s", self.words)
-        logger.debug("Lines: %s", self.lines)
+        #logger.debug("Types: %s", cnt)
+        #logger.debug("Words: %s", self.words)
+        #logger.debug("Lines: %s", self.lines)
 
         brain = {'version': saves_version, 'words': self.words, 'lines': self.lines}
         tmp_file = Path(click.get_app_dir("Pyborg"), "tmp", "current.pyborg.json")
@@ -189,8 +239,11 @@ class PyborgBot:
         command_name = command_list[0].lower()[len(self.config["pyborg"]["prefix"]):]
 
         # Execute the command
-        res = self.command_dict[command_name](self, command_list=command_list, owner=owner)
-        logger.debug(res)
+        cmd = self.command_dict.get_command(command_name)
+        if cmd is not None:
+            res = cmd(self, command_list=command_list, owner=owner)
+        else:
+            res = "Command is not in the available command list."
 
         # Return the message (if any)
         if type(res) == str:
@@ -341,23 +394,23 @@ class PyborgBot:
                     if c.isdigit():
                         digit += 1
 
-                for censored in self.config["censored"]:
+                for censored in self.config["pyborg"]["censored"]:
                     if re.search(censored, words[x]):
                         logger.debug("word: %s***%s is censored. escaping.", words[x][0], words[x][-1])
                         return
                 if len(words[x]) > 13 \
-                        or (((nb_voy * 100) / len(words[x]) < 26) and len(words[x]) > 5) \
+                        or (((nb_voy * 100) / len(words[x]) <= 25) and len(words[x]) > 5) \
                         or (char and digit) \
-                        or (words[x] in self.words) == 0 and self.settings.learning == 0:
+                        or (words[x] in self.words) == 0 and not self.config["pyborg"]["learning"]:
                     # if one word as more than 13 characters, don't learn
                     # (in french, this represent 12% of the words)
-                    # and d'ont learn words where there are less than 25% of voyels
+                    # and d'ont learn words where there are less than 25% of voyels for words of more of 5 characters
                     # don't learn the sentence if one word is censored
                     # don't learn too if there are digits and char in the word
                     # same if learning is off
-                    logger.debug("reply:learn_line: Bailing because reasons?")
+                    logger.debug(f"reply:learn_line: Bailing because reasons? Word: {words[x]}")
                     return
-                elif ("-" in words[x] or "_" in words[x]):
+                elif "-" in words[x] or "_" in words[x]:
                     words[x] = "#nick"
 
             num_w = self.settings["num_words"]
@@ -377,7 +430,7 @@ class PyborgBot:
             logger.debug(hashval)
             # Check context isn't already known
             if hashval not in self.lines:
-                if not (num_cpw > 100 and self.settings.learning == 0):
+                if not (num_cpw > 100 and not self.config["pyborg"]["learning"]):
                     self.lines[hashval] = [cleanbody, num_context]
                     # Add link for each word
                     for i, word in enumerate(words):
@@ -393,8 +446,8 @@ class PyborgBot:
                 self.lines[hashval][1] += num_context
 
             # if max_words reached, don't learn more
-            if self.settings["num_words"] >= self.config["max_words"]:
-                self.settings.learning = False
+            if self.settings["num_words"] >= self.config["pyborg"]["max_words"]:
+                self.settings["learning"] = False
 
         # Split body text into sentences and parse them
         # one by one.
@@ -419,7 +472,7 @@ class PyborgBot:
             return ""
 
         # remove words on the ignore list
-        words = [x for x in words if x not in self.config["ignore_list"] and not x.isdigit()]
+        words = [x for x in words if x not in self.config["pyborg"]["ignore_list"] and not x.isdigit()]
         logger.debug("reply: cleaned words: %s", words)
         # Find rarest word (excluding those unknown)
         index = []
@@ -427,10 +480,10 @@ class PyborgBot:
         # The word has to have been seen in already 3 contexts differents for being choosen
         known_min = 3
         for w in words:
-            logger.debug("known_loop: locals: %s", locals())
+            # logger.debug("known_loop: locals: %s", locals())
             if w in self.words:
                 k = len(self.words[w])
-                logger.debug("known_loop: k?? %s", k)
+                #logger.debug("known_loop: k?? %s", k)
             else:
                 continue
             if (known == -1 or k < known) and k > known_min:
@@ -512,7 +565,7 @@ class PyborgBot:
             # this is for prevent the case when we have an ignore_listed word
             word = str(sentence[0].split(" ")[0])
             for x in range(0, len(self.words[word]) - 1):
-                logger.debug(locals())
+                #logger.debug(locals())
                 logger.debug('trying to unpack: %s', self.words[word][x])
                 l = self.words[word][x]['hashval']  # noqa: E741
                 w = self.words[word][x]['index']
@@ -530,7 +583,7 @@ class PyborgBot:
 
                     # if the word is in ignore_list, look the previous word
                     look_for = cwords[w - 1]
-                    if look_for in self.config["ignore_list"] and w > 1:
+                    if look_for in self.config["pyborg"]["ignore_list"] and w > 1:
                         look_for = cwords[w - 2] + " " + look_for
 
                     # saves how many times we can found each word
@@ -602,7 +655,7 @@ class PyborgBot:
                 if w < len(cwords) - 1:
                     # if the word is in ignore_list, look the next word
                     look_for = cwords[w + 1]
-                    if (look_for in self.config["ignore_list"] or look_for in self.config["censored"]) and w < len(cwords) - 2:
+                    if (look_for in self.config["pyborg"]["ignore_list"] or look_for in self.config["pyborg"]["censored"]) and w < len(cwords) - 2:
                         look_for = look_for + " " + cwords[w + 2]
 
                     if look_for not in post_words:
@@ -670,7 +723,7 @@ class PyborgBot:
 
     def _is_censored(self, word: str) -> bool:
         """DRY."""
-        for censored in self.config["censored"]:
+        for censored in self.config["pyborg"]["censored"]:
             if re.search(censored, word):
                 logger.debug(f"word is censored: {word}")
                 return True
